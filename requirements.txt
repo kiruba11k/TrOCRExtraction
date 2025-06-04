@@ -1,0 +1,8 @@
+streamlit 
+transformers 
+torch 
+pillow 
+langchain 
+langgraph 
+opencv-python
+langchain_community
