@@ -1,9 +1,5 @@
-streamlit 
-transformers 
-torch 
-pillow 
-langchain 
-langgraph 
-opencv-python
-langchain_community
-langchain_groq 
+streamlit
+torch
+torchvision
+transformers
+Pillow
