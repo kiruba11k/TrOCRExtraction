@@ -1,7 +1,7 @@
-streamlit
 torch
-torchvision
 transformers
-Pillow
 accelerate
-pandas
+opencv-python
+Pillow
+streamlit
+qwen-vl @ git+https://github.com/QwenLM/Qwen-VL.git
