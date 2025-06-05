@@ -1,4 +1,4 @@
-torch==2.1.0+cpu 
+torch
 transformers
 accelerate
 opencv-python-headless
