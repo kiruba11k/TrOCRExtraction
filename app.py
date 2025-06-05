@@ -77,76 +77,97 @@
 #     st.download_button("Download as TSV", tsv, file_name="ocr_output.tsv")
 
 
-import os
-import cv2
-import torch
-import numpy as np
-from PIL import Image
-from io import BytesIO
 import streamlit as st
-
+import torch
 from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
 from qwen_vl_utils import process_vision_info
+from PIL import Image
+import io
 
-# Load Qwen2-VL OCR Model
+# Load model & processor
 model = Qwen2VLForConditionalGeneration.from_pretrained(
-    "prithivMLmods/Qwen2-VL-OCR-2B-Instruct", 
-    torch_dtype="auto", 
+    "prithivMLmods/Qwen2-VL-OCR-2B-Instruct",
+    torch_dtype="auto",
     device_map="auto"
 )
-
 processor = AutoProcessor.from_pretrained("prithivMLmods/Qwen2-VL-OCR-2B-Instruct")
 
-st.title("Qwen2-VL OCR Entity Extractor")
+st.title("Name, Designation & Company Extractor (Qwen2-VL)")
+st.caption("Upload image(s) like business cards, ID cards, or resumes")
 
-uploaded_files = st.file_uploader("Upload images", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
-
-def extract_ocr_entities_qwen(image_pil: Image.Image) -> str:
-    # Format input
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "image", "image": image_pil},
-                {"type": "text", "text": "Extract Name, Designation, and Company in tab-separated format."}
-            ],
-        }
-    ]
-    # Chat prompt
-    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    image_inputs, video_inputs = process_vision_info(messages)
-
-    inputs = processor(
-        text=[text],
-        images=image_inputs,
-        videos=video_inputs,
-        padding=True,
-        return_tensors="pt"
-    ).to("cuda" if torch.cuda.is_available() else "cpu")
-
-    generated_ids = model.generate(**inputs, max_new_tokens=128)
-    generated_ids_trimmed = [
-        out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-    ]
-    output_text = processor.batch_decode(
-        generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=True
-    )
-    return output_text[0].strip()
+uploaded_files = st.file_uploader("Upload Image(s)", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
 
 if uploaded_files:
     results = []
+
     for uploaded_file in uploaded_files:
-        st.image(uploaded_file, width=250)
-        with st.spinner("Processing..."):
-            image = Image.open(uploaded_file).convert("RGB")
-            result = extract_ocr_entities_qwen(image)
-            results.append(result)
+        # Load image
+        image = Image.open(uploaded_file).convert("RGB")
 
-    st.markdown("### Extracted TSV Output")
-    final_output = "\n".join(results)
-    st.code(final_output, language="tsv")
-    st.download_button("Download TSV", final_output, file_name="entities.tsv")
-else:
-    st.info("Upload at least one image to begin.")
+        # Display image
+        st.image(image, caption=uploaded_file.name, use_column_width=True)
 
+        # Prepare input
+        buffered = io.BytesIO()
+        image.save(buffered, format="JPEG")
+        buffered.seek(0)
 
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": image},
+                    {"type": "text", "text": "Extract name, designation, and company from this image."}
+                ],
+            }
+        ]
+
+        text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        image_inputs, video_inputs = process_vision_info(messages)
+
+        inputs = processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
+            return_tensors="pt",
+        ).to(model.device)
+
+        generated_ids = model.generate(**inputs, max_new_tokens=128)
+        generated_ids_trimmed = [
+            out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+        ]
+        output_text = processor.batch_decode(
+            generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        )[0]
+
+        # Basic formatting (optional: regex parsing here)
+        st.markdown("### Extracted Info:")
+        st.text(output_text)
+
+        # Convert to TSV if possible
+        name, designation, company = [""] * 3
+        lines = output_text.split("\n")
+        for line in lines:
+            if "name" in line.lower():
+                name = line.split(":")[-1].strip()
+            elif "designation" in line.lower() or "role" in line.lower():
+                designation = line.split(":")[-1].strip()
+            elif "company" in line.lower() or "organization" in line.lower():
+                company = line.split(":")[-1].strip()
+
+        tsv_output = f"{name}\t{designation}\t{company}"
+        st.markdown("### Tab-separated Output")
+        st.code(tsv_output, language="tsv")
+
+        results.append(tsv_output)
+
+    # Final download
+    if results:
+        tsv_all = "\n".join(results)
+        st.download_button(
+            label=" Download TSV",
+            data=tsv_all,
+            file_name="extracted_data.tsv",
+            mime="text/tsv",
+        )
